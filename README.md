@@ -74,7 +74,7 @@ python parser/main.py
 
 ---
 
-## Мониторинг (папка `monitoring/`)
+## Мониторинг
 
 В `monitoring/` лежит инфраструктура мониторинга (часто это Docker Compose + Grafana/Prometheus/и т.п.).
 
