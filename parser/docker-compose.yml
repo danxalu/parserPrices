@@ -1,0 +1,12 @@
+services:
+  ozon-parser:
+    build: .
+    container_name: ozon-parser
+
+    shm_size: "2gb"
+
+    ports:
+      - "9222:9222"
+      - "9223:9223"
+
+    restart: "no"
