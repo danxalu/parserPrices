@@ -6,7 +6,7 @@ The parser of prices of goods on Ozon
 - `parser/` — код парсинга (сбор цен/данных по товарам).
 - `monitoring/` — мониторинг (дашборды/метрики/инфраструктура мониторинга).
 
-> Важно: парсер использует локально запущенный Google Chrome в режиме **Remote Debugging**.
+> Парсер использует локально запущенный Google Chrome в режиме **Remote Debugging**.
 
 ---
 
@@ -78,7 +78,7 @@ python parser/main.py
 
 В `monitoring/` лежит инфраструктура мониторинга (часто это Docker Compose + Grafana/Prometheus/и т.п.).
 
-Типовой запуск (если там есть `docker-compose.yml`):
+Запуск:
 
 ```bash
 cd monitoring
