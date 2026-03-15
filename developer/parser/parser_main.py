@@ -1,23 +1,16 @@
 import logging
-import os
+import sys
 import random
 import re
-import sys
 import time
-from urllib.parse import quote
-
 import requests
-from playwright.sync_api import sync_playwright
+from urllib.parse import quote, urlencode
+import os
 
 os.environ["NODE_OPTIONS"] = "--no-deprecation"
+from playwright.sync_api import sync_playwright
 
 log = logging.getLogger(__name__)
-
-
-VICTORIA_URL = "http://localhost:8428/api/v1/import/prometheus"
-INTERVAL_HOURS = 3
-SEARCH_QUERIES = ["iphone 17 pro max 256gb"]
-PAGE_COUNT = 5
 
 
 def setup_logging(level=logging.INFO):
@@ -28,17 +21,33 @@ def setup_logging(level=logging.INFO):
     )
 
 
-# выполнить команду playwright install
+VICTORIA_URL = "http://localhost:8428/api/v1/import/prometheus"
+INTERVAL_HOURS = 3
+
+PAGE_COUNT = 5
 
 
-def extract_sku(href: str) -> str | None:
+# 1↔1: каждый элемент — это один запрос + его фильтры.
+# filters: это query-параметры Ozon, которые подставляются в URL конкретного запроса.
+SEARCH_CONFIGS = [
+    {
+        "query": "iphone 17 pro max 256gb",
+        "filters": {
+            # Примеры фильтров
+            "volumememoryphone": "100956393",
+            "smartphonecondition": "101845557",
+        },
+    },
+]
+
+
+def extract_sku(href: str) -> str:
     """
     Извлекаем артикул из ссылки:
     ...-2835198401/?...
     """
     match = re.search(r"-(\d+)/", href)
     return match.group(1) if match else None
-
 
 
 def parse_price(price_text: str) -> int:
@@ -49,14 +58,11 @@ def parse_price(price_text: str) -> int:
     return int(digits) if digits else 0
 
 
-
 def auto_scroll(page, count_scroll: int = 20):
     previous_height = 0
     count = 0
-
     while count < count_scroll:
         current_height = page.evaluate("document.body.scrollHeight")
-
         if current_height == previous_height:
             break
 
@@ -67,8 +73,7 @@ def auto_scroll(page, count_scroll: int = 20):
         count += 1
 
 
-
-def extract_custom_fee(page):
+def extract_custom_fee(page) -> int:
     try:
         fee_block = page.locator("span:has-text('пошлина')").first
         if not fee_block or not fee_block.count():
@@ -81,19 +86,30 @@ def extract_custom_fee(page):
         text = price_span.inner_text()
         digits = re.sub(r"[\D]", "", text)
         return int(digits) if digits else 0
+
     except Exception:
         return 0
 
 
+def build_search_url(query: str, filters: dict, page_number: int) -> str:
+    """
+    Строит URL поиска для конкретного запроса и его фильтров.
+    """
+    encoded_query = query
 
-def collect_prices(query: str):
-    encoded_query = quote(query)
-    url = (
-        "https://www.ozon.ru/search/?volumememoryphone=100956393"
-        f"&smartphonecondition=101845557&text={encoded_query}&page={{}}"
-    )
+    params = dict(filters or {})
+    params["text"] = encoded_query
+    params["page"] = str(page_number)
 
-    results = {}
+    qs = urlencode(params, doseq=True)
+    return f"https://www.ozon.ru/search/?{qs}"
+
+
+def collect_prices(search_cfg: dict) -> dict:
+    query = search_cfg["query"]
+    filters = search_cfg.get("filters", {})
+
+    results = dict()
 
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp("http://localhost:9222")
@@ -104,19 +120,14 @@ def collect_prices(query: str):
         context2 = browser2.contexts[0]
         log.info("localhost:9223 connected")
 
-        if not context.pages or not context2.pages:
-            return results
-
         search_page = context.pages[0]
         product_page = context2.pages[0]
 
         try:
             for page_number in range(1, PAGE_COUNT + 1):
-                search_page.goto(
-                    url.format(page_number),
-                    wait_until="domcontentloaded",
-                    timeout=60000,
-                )
+                url = build_search_url(query, filters, page_number)
+
+                search_page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 search_page.wait_for_timeout(random.randint(1500, 3000))
 
                 auto_scroll(search_page, random.randint(7, 9))
@@ -125,11 +136,10 @@ def collect_prices(query: str):
                 tiles = search_page.query_selector_all("div[data-index]")
 
                 if tiles:
-                    log.info("Found %s tiles", len(tiles))
+                    log.info(f"[{query}] Found {len(tiles)} tiles (page={page_number})")
                 else:
-                    log.error("No tiles found")
+                    log.error(f"[{query}] No tiles found (page={page_number})")
                     log.info(search_page.content())
-                    continue
 
                 for tile in tiles:
                     try:
@@ -140,18 +150,14 @@ def collect_prices(query: str):
                             continue
 
                         href = link.get_attribute("href")
-                        sku = extract_sku(href)
+                        sku = extract_sku(href)  # sku = артикул
                         price = parse_price(price_span.inner_text())
 
                         if not sku:
                             continue
 
                         product_url = f"https://www.ozon.ru/product/{sku}"
-                        product_page.goto(
-                            product_url,
-                            wait_until="domcontentloaded",
-                            timeout=60000,
-                        )
+                        product_page.goto(product_url, wait_until="domcontentloaded", timeout=60000)
                         product_page.wait_for_timeout(random.randint(2800, 3200))
 
                         custom_fee = extract_custom_fee(product_page)
@@ -162,6 +168,7 @@ def collect_prices(query: str):
                             "sku": sku,
                             "price": final_price,
                         }
+
                     except Exception:
                         continue
         finally:
@@ -173,11 +180,13 @@ def collect_prices(query: str):
     return results
 
 
-
 def push_to_victoria(metrics: dict):
     lines = []
     for sku, item in metrics.items():
-        line = f'ozon_price{{query="{item["query"]}",sku="{sku}"}} {item["price"]}'
+        line = (
+            f'ozon_price{{query="{item["query"]}",sku="{sku}"}} '
+            f'{item["price"]}'
+        )
         lines.append(line)
 
     data = "\n".join(lines)
@@ -185,26 +194,22 @@ def push_to_victoria(metrics: dict):
 
     if response.status_code != 204:
         log.error("Ошибка отправки: %s", response.text)
-        return False
-
-    return True
-
 
 
 def main():
     while True:
-        all_metrics = {}
+        all_metrics = dict()
 
-        for query in SEARCH_QUERIES:
-            log.info("Парсим: %s", query)
-            metrics = collect_prices(query)
+        for cfg in SEARCH_CONFIGS:
+            log.info(f"Парсим: {cfg['query']}")
+            metrics = collect_prices(cfg)
             all_metrics.update(metrics)
 
         if all_metrics:
             push_to_victoria(all_metrics)
-            log.info("Отправлено %s метрик", len(all_metrics))
+            log.info(f"Отправлено {len(all_metrics)} метрик")
 
-        log.info("Спим %s часов", INTERVAL_HOURS)
+        log.info(f"Спим {INTERVAL_HOURS} часов")
         time.sleep(INTERVAL_HOURS * 3600)
 
 

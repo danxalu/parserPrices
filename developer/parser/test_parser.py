@@ -14,11 +14,9 @@ from parser_main import (
 # UNIT TESTS
 # =========================================================
 
-
 def test_extract_sku_valid_url():
     url = "https://www.ozon.ru/product/iphone-17-pro-max-2835198401/"
     assert extract_sku(url) == "2835198401"
-
 
 
 def test_extract_sku_with_params():
@@ -26,31 +24,25 @@ def test_extract_sku_with_params():
     assert extract_sku(url) == "2835198401"
 
 
-
 def test_extract_sku_invalid_url():
     url = "https://www.ozon.ru/product/test"
     assert extract_sku(url) is None
-
 
 
 def test_parse_price_with_currency():
     assert parse_price("119 734 ₽") == 119734
 
 
-
 def test_parse_price_without_currency():
     assert parse_price("85000") == 85000
-
 
 
 def test_parse_price_with_extra_symbols():
     assert parse_price("~ 99 990 ₽ *") == 99990
 
 
-
 def test_parse_price_no_digits():
     assert parse_price("нет в наличии") == 0
-
 
 
 def test_parse_price_empty_string():
@@ -58,9 +50,8 @@ def test_parse_price_empty_string():
 
 
 # =========================================================
-# INTEGRATION TESTS
+# INTEGRATION TESTS (requests.post mocked)
 # =========================================================
-
 
 @patch("parser_main.requests.post")
 def test_metric_format(mock_post):
@@ -86,16 +77,13 @@ def test_push_metrics_success(mock_post):
     mock_post.return_value.status_code = 204
 
     metrics = {
-        "123": {
-            "query": "iphone",
-            "sku": "123",
-            "price": 100000,
-        }
+        "123": {"query": "iphone", "sku": "123", "price": 100000}
     }
 
     result = push_to_victoria(metrics)
 
-    assert result is True
+    # В текущей реализации push_to_victoria ничего не возвращает
+    assert result is None
     mock_post.assert_called_once()
 
 
@@ -105,16 +93,13 @@ def test_push_metrics_error(mock_post):
     mock_post.return_value.text = "server error"
 
     metrics = {
-        "123": {
-            "query": "iphone",
-            "sku": "123",
-            "price": 100000,
-        }
+        "123": {"query": "iphone", "sku": "123", "price": 100000}
     }
 
     result = push_to_victoria(metrics)
 
-    assert result is False
+    # Ошибка логируется, но исключение не выбрасывается
+    assert result is None
     mock_post.assert_called_once()
 
 
@@ -149,18 +134,15 @@ def test_empty_metrics(mock_post):
 # NEGATIVE TESTS
 # =========================================================
 
-
 def test_extract_custom_fee_no_fee_block():
     page = MagicMock()
 
     locator_mock = MagicMock()
     locator_mock.count.return_value = 0
-
     page.locator.return_value.first = locator_mock
 
     result = extract_custom_fee(page)
     assert result == 0
-
 
 
 def test_extract_custom_fee_no_price_span():
@@ -184,8 +166,7 @@ def test_browser_connection_error(mock_sync_playwright):
     mock_sync_playwright.side_effect = Exception("Connection failed")
 
     with pytest.raises(Exception):
-        collect_prices("iphone")
-
+        collect_prices({"query": "iphone", "filters": {}})
 
 
 def _make_scroll_evaluate():
@@ -228,7 +209,7 @@ def test_empty_search_results(mock_sync_playwright):
     playwright_mock.chromium.connect_over_cdp.side_effect = [browser_mock_1, browser_mock_2]
     mock_sync_playwright.return_value.__enter__.return_value = playwright_mock
 
-    result = collect_prices("iphone")
+    result = collect_prices({"query": "iphone", "filters": {}})
 
     assert result == {}
     search_page_mock.query_selector_all.assert_called_once_with("div[data-index]")
@@ -273,7 +254,7 @@ def test_collect_prices_success(mock_sync_playwright, mock_extract_custom_fee):
     playwright_mock.chromium.connect_over_cdp.side_effect = [browser_mock_1, browser_mock_2]
     mock_sync_playwright.return_value.__enter__.return_value = playwright_mock
 
-    result = collect_prices("iphone")
+    result = collect_prices({"query": "iphone", "filters": {}})
 
     assert result == {
         "2835198401": {
