@@ -20,6 +20,25 @@ The parser of prices of goods on Ozon
 
 ## Быстрый старт
 
+## Конфиг `search_configs.yaml`
+
+Парсер читает список запросов и их фильтры из файла `search_configs.yaml`.  
+Каждый элемент `queries` — это **один запрос** и **его фильтры**: фильтры применяются только к своему запросу и подставляются в URL поиска Ozon.
+
+### Пример `search_configs.yaml`
+```
+victoria_url: "http://localhost:8428/api/v1/import/prometheus"
+interval_hours: 3
+page_count: 5
+
+queries:
+  - query: "iphone 17 pro max 256gb"
+    filters:
+      volumememoryphone: "100956393"
+      smartphonecondition: "101845557"
+      sort: "popular"
+```
+
 ### 1) Клонирование
 
 ```bash

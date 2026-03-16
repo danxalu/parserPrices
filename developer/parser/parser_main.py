@@ -4,11 +4,13 @@ import random
 import re
 import time
 import requests
+import yaml
 from urllib.parse import quote, urlencode
 import os
 
 os.environ["NODE_OPTIONS"] = "--no-deprecation"
 from playwright.sync_api import sync_playwright
+
 
 log = logging.getLogger(__name__)
 
@@ -21,24 +23,33 @@ def setup_logging(level=logging.INFO):
     )
 
 
-VICTORIA_URL = "http://localhost:8428/api/v1/import/prometheus"
-INTERVAL_HOURS = 3
+def load_search_configs_from_yaml(yaml_path: str):
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
 
-PAGE_COUNT = 5
+    settings = {
+        "interval_hours": int(cfg.get("interval_hours", 3)),
+        "page_count": int(cfg.get("page_count", 5)),
+        "victoria_url": cfg.get("victoria_url", "http://localhost:8428/api/v1/import/prometheus"),
+    }
+
+    search_configs = []
+    for item in (cfg.get("queries") or []):
+        q = (item.get("query") or "").strip()
+        if not q:
+            continue
+        filters = item.get("filters") or {}
+        filters = {str(k): str(v) for k, v in filters.items()}
+        search_configs.append({"query": q, "filters": filters})
+
+    return search_configs, settings
 
 
-# 1↔1: каждый элемент — это один запрос + его фильтры.
-# filters: это query-параметры Ozon, которые подставляются в URL конкретного запроса.
-SEARCH_CONFIGS = [
-    {
-        "query": "iphone 17 pro max 256gb",
-        "filters": {
-            # Примеры фильтров
-            "volumememoryphone": "100956393",
-            "smartphonecondition": "101845557",
-        },
-    },
-]
+CONFIG_YAML_SEARCH_PATH = "search_config.yaml"
+SEARCH_CONFIGS, settings = load_search_configs_from_yaml(CONFIG_YAML_SEARCH_PATH)
+VICTORIA_URL = settings["victoria_url"]
+INTERVAL_HOURS = settings["interval_hours"]
+PAGE_COUNT = settings["page_count"]
 
 
 def extract_sku(href: str) -> str:

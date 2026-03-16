@@ -1,0 +1,9 @@
+victoria_url: "http://localhost:8428/api/v1/import/prometheus"
+interval_hours: 3
+page_count: 5
+
+queries:
+  - query: "iphone 17 pro max 256gb"
+    filters:
+      volumememoryphone: "100956393"
+      smartphonecondition: "101845557"
